@@ -12,3 +12,4 @@ env/
 *.swo
 .idea/
 .vscode/
+changes.md
