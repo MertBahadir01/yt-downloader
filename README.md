@@ -84,3 +84,10 @@ Settings are saved to `~/.ytdownloader/config.json` and include:
 **Age-restricted videos**: Use `--cookies-from-browser` option (advanced; see yt-dlp docs).
 
 **Slow fetching**: Normal for playlists with many entries. First fetch resolves all metadata.
+
+
+---
+
+## License
+
+MIT — free to use, modify, and distribute.
