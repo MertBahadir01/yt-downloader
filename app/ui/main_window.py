@@ -59,7 +59,7 @@ class MainWindow:
         self._build_ui()
         self._bind_events()
 
-    # ---------------------------------------------------------------- #
+# ---------------------------------------------------------------- #
     #  UI construction                                                  #
     # ---------------------------------------------------------------- #
 
@@ -147,12 +147,17 @@ class MainWindow:
         self._status_bar.pack(fill="x", padx=20, pady=(4, 0))
 
         # ── Scrollable main content area ──────────────────────────
-        content = ctk.CTkFrame(self._root, fg_color="transparent")
-        content.pack(fill="both", expand=True, padx=0, pady=0)
+        self._content_scroll = ctk.CTkScrollableFrame(
+            self._root,
+            fg_color="transparent",
+            scrollbar_button_color="#334155",
+            scrollbar_button_hover_color="#475569",
+        )
+        self._content_scroll.pack(fill="both", expand=True, padx=0, pady=0)
 
         # Middle: video info + format selector
         self._download_panel = DownloadPanel(
-            content,
+            self._content_scroll,
             on_download_requested=self._on_download_requested,
             fg_color="#162032",
             corner_radius=0,
@@ -160,12 +165,12 @@ class MainWindow:
         self._download_panel.pack(fill="x")
 
         # Separator
-        sep = ctk.CTkFrame(content, height=1, fg_color="#1E293B")
+        sep = ctk.CTkFrame(self._content_scroll, height=1, fg_color="#1E293B")
         sep.pack(fill="x")
 
         # Bottom: progress + log
         self._progress_panel = ProgressPanel(
-            content,
+            self._content_scroll,
             fg_color="#0F172A",
             corner_radius=0,
         )
