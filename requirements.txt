@@ -1,0 +1,8 @@
+# YT Downloader - Python dependencies
+# Install with: pip install -r requirements.txt
+
+yt-dlp>=2024.1.0          # Core download engine
+customtkinter>=5.2.0       # Modern dark-mode UI framework
+Pillow>=10.0.0             # Thumbnail image loading
+requests>=2.31.0           # HTTP requests for thumbnail fetch
+tkinterdnd2>=0.3.0         # Drag-and-drop URL support (optional)
