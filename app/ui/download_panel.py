@@ -311,7 +311,8 @@ class DownloadPanel(ctk.CTkFrame):
         scroll = ctk.CTkScrollableFrame(self._playlist_frame, height=120)
         scroll.pack(fill="x", padx=10, pady=(0, 8))
 
-        for i, entry in enumerate(info.playlist_entries[:50]):
+        #for i, entry in enumerate(info.playlist_entries[:50]):
+        for i, entry in enumerate(info.playlist_entries):
             var = tk.BooleanVar(value=True)
             self._playlist_listbox_var.append(var)
             cb = ctk.CTkCheckBox(
