@@ -13,3 +13,18 @@ env/
 .idea/
 .vscode/
 changes.md
+
+# PyInstaller
+build/
+dist/
+*.spec
+
+# Executables
+*.exe
+
+# Logs
+*.log
+
+# OS junk
+.DS_Store
+Thumbs.db
