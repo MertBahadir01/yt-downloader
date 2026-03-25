@@ -35,25 +35,29 @@ def unregister_ui_callback(cb: Callable[[str, str], None]) -> None:
         _ui_callbacks.remove(cb)
 
 
-def setup_logging(level: int = logging.DEBUG) -> None:
-    """Configure root logger with console + UI handlers."""
+def setup_logging(level: int = logging.WARNING) -> None:
+    """Configure root logger — suppress noisy DEBUG output from third-party libs."""
     root = logging.getLogger()
-    root.setLevel(level)
+    # Root at WARNING so PIL, tkinterdnd2, yt-dlp internals etc. stay silent.
+    root.setLevel(logging.WARNING)
 
     if not root.handlers:
         fmt = logging.Formatter(
             "[%(asctime)s] %(levelname)-8s %(name)s: %(message)s",
             datefmt="%H:%M:%S",
         )
-        # Console handler
         ch = logging.StreamHandler(sys.stdout)
         ch.setFormatter(fmt)
-        ch.setLevel(logging.DEBUG)
+        ch.setLevel(logging.WARNING)
         root.addHandler(ch)
 
-    # UI handler (always added fresh)
+    # Our own app logger stays at INFO so deliberate app messages come through.
+    logging.getLogger("app").setLevel(logging.INFO)
+
+    # UI handler receives only INFO+ from app.* — not third-party debug spam.
     ui_handler = UILogHandler()
-    ui_handler.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s: %(message)s", datefmt="%H:%M:%S"))
+    ui_handler.setLevel(logging.INFO)
+    ui_handler.setFormatter(logging.Formatter("[%(asctime)s] %(message)s", datefmt="%H:%M:%S"))
     root.addHandler(ui_handler)
 
 

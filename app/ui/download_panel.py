@@ -47,6 +47,9 @@ class DownloadPanel(ctk.CTkFrame):
         self._on_download_requested = on_download_requested
         self._video_info: Optional[VideoInfo] = None
         self._thumb_img  = None  # keep reference to prevent GC
+        self._scroll_manager = None   # set later via register_scroll()
+        self._playlist_scroll = None
+        self._playlist_scroll_registered = False  # only register one zone per panel
         self._build_ui()
 
     # ---------------------------------------------------------------- #
@@ -64,16 +67,16 @@ class DownloadPanel(ctk.CTkFrame):
         self._thumb_label = ctk.CTkLabel(
             left, text="No thumbnail",
             width=240, height=135,
-            fg_color="#1E293B",
+            fg_color=("#E2E8F0", "#1E293B"),
             corner_radius=8,
             font=ctk.CTkFont(size=12),
-            text_color="#4B5563",
+            text_color=("#94A3B8", "#4B5563"),
         )
         self._thumb_label.pack(pady=(0, 8))
 
         # Playlist badge
         self._playlist_badge = ctk.CTkLabel(
-            left, text="", fg_color="#7C3AED",
+            left, text="", fg_color=("#7C3AED", "#7C3AED"),
             corner_radius=6, font=ctk.CTkFont(size=11), text_color="white",
             padx=8, pady=2,
         )
@@ -91,15 +94,15 @@ class DownloadPanel(ctk.CTkFrame):
         meta_row.pack(anchor="w", pady=(4, 8))
 
         self._lbl_channel = ctk.CTkLabel(meta_row, text="", font=ctk.CTkFont(size=12),
-                                         text_color="#60A5FA")
+                                         text_color=("#2563EB", "#60A5FA"))
         self._lbl_channel.pack(side="left", padx=(0, 12))
 
         self._lbl_duration = ctk.CTkLabel(meta_row, text="", font=ctk.CTkFont(size=12),
-                                          text_color="#9CA3AF")
+                                          text_color=("#6B7280", "#9CA3AF"))
         self._lbl_duration.pack(side="left")
 
         # ── Format selectors ──────────────────────────────────────
-        fmt_frame = ctk.CTkFrame(right, fg_color="#1E293B", corner_radius=8)
+        fmt_frame = ctk.CTkFrame(right, fg_color=("#E2E8F0", "#1E293B"), corner_radius=8)
         fmt_frame.pack(fill="x", pady=(0, 10))
 
         # Row 1: Output format
@@ -145,11 +148,11 @@ class DownloadPanel(ctk.CTkFrame):
 
         # ── Estimated size ────────────────────────────────────────
         self._lbl_est_size = ctk.CTkLabel(right, text="", font=ctk.CTkFont(size=11),
-                                          text_color="#9CA3AF", anchor="w")
+                                          text_color=("#6B7280", "#9CA3AF"), anchor="w")
         self._lbl_est_size.pack(anchor="w")
 
         # ── Playlist selector (hidden until playlist loaded) ──────
-        self._playlist_frame = ctk.CTkFrame(right, fg_color="#1E293B", corner_radius=8)
+        self._playlist_frame = ctk.CTkFrame(right, fg_color=("#E2E8F0", "#1E293B"), corner_radius=8)
         self._playlist_listbox_var: list[tk.BooleanVar] = []
 
         # ── Download button ───────────────────────────────────────
@@ -214,6 +217,33 @@ class DownloadPanel(ctk.CTkFrame):
     def set_loading(self, loading: bool) -> None:
         state = "disabled" if loading else "normal"
         self._btn_download.configure(state=state)
+
+    def register_scroll(self, manager) -> None:
+        """Called by MainWindow after the ScrollManager is created."""
+        self._scroll_manager = manager
+        # Register the playlist frame as a dynamic zone now so the zone
+        # object exists before any playlist is loaded. The getter returns
+        # the inner canvas of whatever CTkScrollableFrame is currently live.
+        if not self._playlist_scroll_registered:
+            manager.register_dynamic(
+                click_root    = self._playlist_frame,
+                get_target    = lambda: getattr(
+                    getattr(self, "_playlist_scroll", None),
+                    "_parent_canvas",
+                    getattr(self, "_playlist_scroll", None),
+                ),
+                border_widget = self._playlist_frame,
+            )
+            self._playlist_scroll_registered = True
+
+    def get_selected_count(self) -> int | None:
+        """
+        Returns the number of checked playlist items, or None if no
+        playlist is loaded (i.e. single-video download).
+        """
+        if not self._playlist_listbox_var:
+            return None
+        return sum(1 for v in self._playlist_listbox_var if v.get())
 
     # ---------------------------------------------------------------- #
     #  Internal helpers                                                 #
@@ -296,34 +326,112 @@ class DownloadPanel(ctk.CTkFrame):
         )
 
     def _show_playlist_selector(self, info: VideoInfo) -> None:
-        """Display a checklist of playlist entries."""
-        # Clear old widgets
+        """
+        Display a checklist of playlist entries.
+
+        Performance notes
+        -----------------
+        * Widgets created in batches of BATCH_SIZE — keeps UI responsive for
+          50+ items without freezing the event loop.
+        * BooleanVars built upfront (cheap) so select-all/deselect-all works
+          even while batches are still rendering.
+        * rebind_clicks() called after each batch so newly created checkboxes
+          correctly activate the playlist scroll zone when clicked.
+        """
+        BATCH_SIZE = 20
+
+        # ── Clear previous state ──────────────────────────────────
         for w in self._playlist_frame.winfo_children():
             w.destroy()
         self._playlist_listbox_var.clear()
+        self._playlist_scroll = None
 
+        # ── Header label ──────────────────────────────────────────
         ctk.CTkLabel(
             self._playlist_frame,
             text=f"Playlist: {info.playlist_title} ({info.playlist_count} videos)",
             font=ctk.CTkFont(size=12, weight="bold"),
         ).pack(anchor="w", padx=10, pady=(8, 4))
 
-        scroll = ctk.CTkScrollableFrame(self._playlist_frame, height=120)
+        # ── Select-all / deselect-all strip ───────────────────────
+        btn_row = ctk.CTkFrame(self._playlist_frame, fg_color="transparent")
+        btn_row.pack(anchor="w", padx=10, pady=(0, 4))
+
+        def _select_all():
+            for v in self._playlist_listbox_var:
+                v.set(True)
+
+        def _deselect_all():
+            for v in self._playlist_listbox_var:
+                v.set(False)
+
+        ctk.CTkButton(btn_row, text="Select all",   width=90, height=22,
+                      font=ctk.CTkFont(size=11), command=_select_all).pack(side="left", padx=(0, 6))
+        ctk.CTkButton(btn_row, text="Deselect all", width=90, height=22,
+                      font=ctk.CTkFont(size=11), command=_deselect_all).pack(side="left")
+
+        # ── Scrollable checkbox area ──────────────────────────────
+        scroll = ctk.CTkScrollableFrame(self._playlist_frame, height=150)
         scroll.pack(fill="x", padx=10, pady=(0, 8))
+        self._playlist_scroll = scroll
+        # Zone registration is done once in register_scroll() via a getter
+        # lambda — no re-registration needed here on rebuild.
 
-        #for i, entry in enumerate(info.playlist_entries[:50]):
-        for i, entry in enumerate(info.playlist_entries):
-            var = tk.BooleanVar(value=True)
-            self._playlist_listbox_var.append(var)
-            cb = ctk.CTkCheckBox(
-                scroll,
-                text=f"{i+1}. {entry.title[:60]}",
-                variable=var,
-                font=ctk.CTkFont(size=11),
-                height=22,
+        # ── Build BooleanVars first (cheap) ──────────────────────
+        entries = info.playlist_entries
+        for entry in entries:
+            self._playlist_listbox_var.append(
+                tk.BooleanVar(value=entry.availability == "public")
             )
-            cb.pack(anchor="w", pady=1)
 
+        # ── Batch-render checkboxes to keep UI responsive ─────────
+        def _render_batch(start: int) -> None:
+            end = min(start + BATCH_SIZE, len(entries))
+            for i in range(start, end):
+                entry = entries[i]
+                var   = self._playlist_listbox_var[i]
+                if entry.availability != "public":
+                    label      = f"{i+1}. ⚠ {entry.title[:45]}  [{entry.restriction_reason}]"
+                    text_color = "#F59E0B"
+                else:
+                    label      = f"{i+1}. {entry.title[:60]}"
+                    text_color = None
+
+                # Full-row frame — clicking anywhere on it toggles the var
+                row_frame = ctk.CTkFrame(scroll, fg_color="transparent", cursor="hand2")
+                row_frame.pack(fill="x", pady=1)
+
+                cb = ctk.CTkCheckBox(
+                    row_frame,
+                    text=label,
+                    variable=var,
+                    font=ctk.CTkFont(size=11),
+                    height=22,
+                    text_color=text_color,
+                )
+                cb.pack(anchor="w", padx=4)
+
+                # Make clicking anywhere on the row toggle the checkbox,
+                # and also activate this scroll zone — not the log zone.
+                def _toggle(event, v=var, c=cb):
+                    # Only toggle if the click wasn't directly on the
+                    # CTkCheckBox checkbox square itself (it handles its own toggle)
+                    widget = event.widget
+                    cb_internal = getattr(c, "_canvas", None) or getattr(c, "canvas", None)
+                    if widget not in (c, cb_internal):
+                        v.set(not v.get())
+
+                for w in (row_frame,):
+                    w.bind("<Button-1>", _toggle, add="+")
+
+            # Re-bind click handlers on newly created widgets so they
+            # properly activate this zone in the ScrollManager.
+            if self._scroll_manager is not None:
+                self._scroll_manager.rebind_clicks(scroll)
+            if end < len(entries):
+                scroll.after(0, lambda e=end: _render_batch(e))
+
+        _render_batch(0)
         self._playlist_frame.pack(fill="x", pady=(0, 8))
 
     def _load_thumbnail(self, url: str) -> None:

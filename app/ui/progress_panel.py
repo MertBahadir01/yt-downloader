@@ -14,14 +14,15 @@ from typing import Optional
 from app.downloader.yt_downloader import DownloadProgress, DownloadStatus
 
 
-# Log level colours in the console
+# Log level colours in the console — single value used as tk tag foreground.
+# These are intentionally mid-tone so they read on both light and dark backgrounds.
 LOG_COLOURS = {
     "DEBUG":    "#6B7280",
-    "INFO":     "#9CA3AF",
-    "WARNING":  "#F59E0B",
-    "ERROR":    "#EF4444",
-    "CRITICAL": "#DC2626",
-    "SUCCESS":  "#10B981",
+    "INFO":     "#4B5563",
+    "WARNING":  "#D97706",
+    "ERROR":    "#DC2626",
+    "CRITICAL": "#B91C1C",
+    "SUCCESS":  "#059669",
 }
 
 
@@ -48,19 +49,19 @@ class ProgressPanel(ctk.CTkFrame):
         stats_frame.pack(fill="x", padx=16, pady=(0, 6))
 
         self._lbl_filename = ctk.CTkLabel(stats_frame, text="", font=ctk.CTkFont(size=12),
-                                          text_color="#9CA3AF", anchor="w")
+                                          text_color=("#6B7280", "#9CA3AF"), anchor="w")
         self._lbl_filename.pack(side="left", fill="x", expand=True)
 
         right = ctk.CTkFrame(stats_frame, fg_color="transparent")
         right.pack(side="right")
 
-        self._lbl_speed = ctk.CTkLabel(right, text="", font=ctk.CTkFont(size=12), text_color="#60A5FA", width=100)
+        self._lbl_speed = ctk.CTkLabel(right, text="", font=ctk.CTkFont(size=12), text_color=("#2563EB", "#60A5FA"), width=100)
         self._lbl_speed.pack(side="left", padx=6)
 
-        self._lbl_eta = ctk.CTkLabel(right, text="", font=ctk.CTkFont(size=12), text_color="#A78BFA", width=80)
+        self._lbl_eta = ctk.CTkLabel(right, text="", font=ctk.CTkFont(size=12), text_color=("#7C3AED", "#A78BFA"), width=80)
         self._lbl_eta.pack(side="left", padx=6)
 
-        self._lbl_size = ctk.CTkLabel(right, text="", font=ctk.CTkFont(size=12), text_color="#34D399", width=110)
+        self._lbl_size = ctk.CTkLabel(right, text="", font=ctk.CTkFont(size=12), text_color=("#059669", "#34D399"), width=110)
         self._lbl_size.pack(side="left", padx=6)
 
         # ── Progress bar ───────────────────────────────────────────
@@ -68,7 +69,7 @@ class ProgressPanel(ctk.CTkFrame):
         self._progress_bar.pack(fill="x", padx=16, pady=(0, 4))
         self._progress_bar.set(0)
 
-        self._lbl_percent = ctk.CTkLabel(self, text="0%", font=ctk.CTkFont(size=11), text_color="#9CA3AF")
+        self._lbl_percent = ctk.CTkLabel(self, text="0%", font=ctk.CTkFont(size=11), text_color=("#6B7280", "#9CA3AF"))
         self._lbl_percent.pack(anchor="e", padx=20)
 
         # ── Log console ────────────────────────────────────────────
@@ -77,17 +78,17 @@ class ProgressPanel(ctk.CTkFrame):
         ctk.CTkLabel(log_header, text="Log Console", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
         ctk.CTkButton(log_header, text="Clear", width=60, height=24,
                       font=ctk.CTkFont(size=11), command=self.clear_log,
-                      fg_color="#374151", hover_color="#4B5563").pack(side="right")
+                      fg_color=("#CBD5E1", "#374151"), hover_color=("#94A3B8", "#4B5563")).pack(side="right")
 
         # Textbox used as the log console
         self._log_box = ctk.CTkTextbox(
             self,
             height=160,
             font=ctk.CTkFont(family="Courier New", size=11),
-            fg_color="#0F172A",
-            text_color="#CBD5E1",
+            fg_color=("#FFFFFF", "#0F172A"),
+            text_color=("#1E293B", "#CBD5E1"),
             border_width=1,
-            border_color="#1E293B",
+            border_color=("#CBD5E1", "#1E293B"),
         )
         self._log_box.pack(fill="both", expand=True, padx=16, pady=(0, 12))
         self._log_box.configure(state="disabled")
@@ -99,9 +100,20 @@ class ProgressPanel(ctk.CTkFrame):
         self._log_box._textbox.tag_configure("ERROR",   foreground=LOG_COLOURS["ERROR"])
         self._log_box._textbox.tag_configure("SUCCESS", foreground=LOG_COLOURS["SUCCESS"])
 
-    # ---------------------------------------------------------------- #
-    #  Public update methods (called from UI thread)                    #
-    # ---------------------------------------------------------------- #
+    def register_scroll(self, manager) -> None:
+        """Register the log textbox as a click-to-focus scroll zone."""
+        inner_text = getattr(self._log_box, "_textbox", None) or self._log_box
+        manager.register(
+            click_root    = self._log_box,
+            scroll_target = inner_text,
+            border_widget = self._log_box,
+            scroll_speed  = 0.3,   # slower than the playlist checkbox panel
+        )
+        # CTkTextbox wraps a tk.Text that isn't exposed via winfo_children().
+        # Explicitly suppress its built-in MouseWheel so main doesn't co-scroll.
+        manager.bind_extra(inner_text, self._log_box)
+
+    # ---------------------------------------------------------------- # #
 
     def update_progress(self, prog: DownloadProgress) -> None:
         """Update all progress widgets from a DownloadProgress snapshot."""
@@ -130,6 +142,12 @@ class ProgressPanel(ctk.CTkFrame):
 
         elif prog.status == DownloadStatus.CANCELLED:
             self.append_log("Download cancelled.", "WARNING")
+
+        elif prog.status == DownloadStatus.SKIPPED:
+            self.append_log(f"⚠ Skipped after retries: {prog.message}", "WARNING")
+
+        elif prog.status == DownloadStatus.RUNNING and prog.message and "Retry" in prog.message:
+            self.append_log(prog.message, "WARNING")
 
     def reset_progress(self) -> None:
         self._progress_bar.set(0)

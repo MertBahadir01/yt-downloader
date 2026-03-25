@@ -61,6 +61,8 @@ class VideoInfo:
     playlist_title: str = ""
     playlist_count: int = 0
     playlist_entries: list["VideoInfo"] = field(default_factory=list)
+    availability: str = "public"       # public / private / members_only / age_restricted / etc.
+    restriction_reason: str = ""       # human-readable reason if not freely available
 
     @property
     def duration_human(self) -> str:
@@ -113,9 +115,55 @@ def parse_format(raw: dict) -> VideoFormat:
     )
 
 
+def _detect_restriction(raw: dict) -> tuple[str, str]:
+    """
+    Inspect a raw yt-dlp info dict and return (availability_tag, human_reason).
+    Returns ("public", "") when the video is freely available.
+    """
+    avail = raw.get("availability") or ""
+
+    if raw.get("is_private") or avail == "private":
+        return "private", "Video is private"
+
+    if raw.get("is_members_only") or avail in ("subscriber_only", "members_only"):
+        return "members_only", "Members-only video"
+
+    if avail == "premium_only":
+        return "premium_only", "YouTube Premium required"
+
+    age = raw.get("age_limit") or 0
+    if age >= 18 or avail == "needs_auth":
+        return "age_restricted", "Age-restricted (18+)"
+
+    if avail == "geo_restricted":
+        return "geo_restricted", "Not available in your region"
+
+    live_status = raw.get("live_status") or ""
+    if live_status == "is_live":
+        return "live", "Live stream (not downloadable yet)"
+    if live_status == "is_upcoming":
+        scheduled = raw.get("release_timestamp")
+        if scheduled:
+            from datetime import datetime
+            dt = datetime.fromtimestamp(scheduled).strftime("%Y-%m-%d %H:%M")
+            return "upcoming", f"Scheduled for {dt}"
+        return "upcoming", "Upcoming / not yet available"
+    if live_status == "post_live":
+        return "post_live", "Live stream just ended — replay may not be available yet"
+
+    if avail == "unlisted":
+        return "unlisted", "Unlisted video (accessible via link)"
+
+    if not raw.get("formats") and not raw.get("url"):
+        return "unavailable", "No downloadable formats found"
+
+    return "public", ""
+
+
 def parse_info(raw: dict, url: str) -> VideoInfo:
     """Convert a raw yt-dlp info dict to VideoInfo."""
     formats = [parse_format(f) for f in raw.get("formats", [])]
+    availability, restriction_reason = _detect_restriction(raw)
 
     return VideoInfo(
         url=url,
@@ -126,6 +174,8 @@ def parse_info(raw: dict, url: str) -> VideoInfo:
         thumbnail_url=raw.get("thumbnail") or "",
         description=raw.get("description") or "",
         formats=formats,
+        availability=availability,
+        restriction_reason=restriction_reason,
     )
 
 

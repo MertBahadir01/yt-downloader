@@ -21,6 +21,8 @@ DEFAULTS: dict[str, Any] = {
     "embed_metadata": True,
     "embed_thumbnail": True,
     "concurrent_downloads": 2,
+    "max_retries": 3,
+    "retry_delay": 5,
     "auto_update_ytdlp": False,
     "window_width": 1100,
     "window_height": 780,

@@ -14,6 +14,7 @@ from tkinter import messagebox
 from typing import Optional
 import threading
 import logging
+import sys
 
 from app.downloader.yt_downloader import (
     YTDownloader, DownloadProgress, DownloadStatus, DownloadTask
@@ -38,12 +39,16 @@ class MainWindow:
         setup_logging()
         register_ui_callback(self._on_log_message)
 
+        # tkinterdnd2 must initialise before CTk steals the Tk root class.
+        # Use TkinterDnD.Tk() as the base window; CTk theming still applies.
         self._root = ctk.CTk()
+
         self._root.title("YT Downloader")
         self._root.geometry(
             f"{settings.get('window_width')}x{settings.get('window_height')}"
         )
         self._root.minsize(900, 640)
+        self._root.after(0, lambda: self._root.state("zoomed") if sys.platform != "darwin" else self._root.attributes("-fullscreen", True))
 
         # Downloader engine
         self._downloader = YTDownloader(
@@ -65,7 +70,7 @@ class MainWindow:
 
     def _build_ui(self):
         # ── App header bar ────────────────────────────────────────
-        header = ctk.CTkFrame(self._root, height=52, fg_color="#0F172A", corner_radius=0)
+        header = ctk.CTkFrame(self._root, height=52, fg_color=("#E2E8F0", "#0F172A"), corner_radius=0)
         header.pack(fill="x")
         header.pack_propagate(False)
 
@@ -73,7 +78,7 @@ class MainWindow:
             header,
             text="⬇  YT Downloader",
             font=ctk.CTkFont(size=18, weight="bold"),
-            text_color="#F1F5F9",
+            text_color=("#0F172A", "#F1F5F9"),
         ).pack(side="left", padx=20)
 
         # Theme toggle
@@ -89,7 +94,7 @@ class MainWindow:
         ctk.CTkButton(
             header, text="📋 History", width=90, height=28,
             font=ctk.CTkFont(size=12),
-            fg_color="#1E293B", hover_color="#334155",
+            fg_color=("#CBD5E1", "#1E293B"), hover_color=("#94A3B8", "#334155"),
             command=self._show_history,
         ).pack(side="right", padx=(0, 8))
 
@@ -97,12 +102,12 @@ class MainWindow:
         ctk.CTkButton(
             header, text="⚙ Settings", width=90, height=28,
             font=ctk.CTkFont(size=12),
-            fg_color="#1E293B", hover_color="#334155",
+            fg_color=("#CBD5E1", "#1E293B"), hover_color=("#94A3B8", "#334155"),
             command=self._show_settings,
         ).pack(side="right", padx=(0, 4))
 
         # ── URL input bar ─────────────────────────────────────────
-        url_bar = ctk.CTkFrame(self._root, fg_color="#1E293B", corner_radius=0, height=60)
+        url_bar = ctk.CTkFrame(self._root, fg_color=("#F1F5F9", "#1E293B"), corner_radius=0, height=60)
         url_bar.pack(fill="x")
         url_bar.pack_propagate(False)
 
@@ -116,15 +121,15 @@ class MainWindow:
             placeholder_text="Paste a YouTube video or playlist URL…",
             font=ctk.CTkFont(size=13),
             height=36,
-            border_color="#334155",
-            fg_color="#0F172A",
+            border_color=("#94A3B8", "#334155"),
+            fg_color=("#FFFFFF", "#0F172A"),
         )
         self._url_entry.pack(side="left", fill="x", expand=True, padx=(0, 8), pady=12)
 
         self._btn_paste = ctk.CTkButton(
             url_bar, text="⎘ Paste", width=75, height=36,
             font=ctk.CTkFont(size=12),
-            fg_color="#334155", hover_color="#475569",
+            fg_color=("#CBD5E1", "#334155"), hover_color=("#94A3B8", "#475569"),
             command=self._paste_url,
         )
         self._btn_paste.pack(side="left", padx=(0, 6))
@@ -141,7 +146,7 @@ class MainWindow:
         self._status_bar = ctk.CTkLabel(
             self._root, text="Ready",
             font=ctk.CTkFont(size=11),
-            text_color="#6B7280",
+            text_color=("#6B7280", "#6B7280"),
             anchor="w",
         )
         self._status_bar.pack(fill="x", padx=20, pady=(4, 0))
@@ -150,8 +155,8 @@ class MainWindow:
         self._content_scroll = ctk.CTkScrollableFrame(
             self._root,
             fg_color="transparent",
-            scrollbar_button_color="#334155",
-            scrollbar_button_hover_color="#475569",
+            scrollbar_button_color=("#94A3B8", "#334155"),
+            scrollbar_button_hover_color=("#64748B", "#475569"),
         )
         self._content_scroll.pack(fill="both", expand=True, padx=0, pady=0)
 
@@ -159,25 +164,37 @@ class MainWindow:
         self._download_panel = DownloadPanel(
             self._content_scroll,
             on_download_requested=self._on_download_requested,
-            fg_color="#162032",
+            fg_color=("#F8FAFC", "#162032"),
             corner_radius=0,
         )
         self._download_panel.pack(fill="x")
 
         # Separator
-        sep = ctk.CTkFrame(self._content_scroll, height=1, fg_color="#1E293B")
+        sep = ctk.CTkFrame(self._content_scroll, height=1, fg_color=("#CBD5E1", "#1E293B"))
         sep.pack(fill="x")
 
         # Bottom: progress + log
         self._progress_panel = ProgressPanel(
             self._content_scroll,
-            fg_color="#0F172A",
+            fg_color=("#F1F5F9", "#0F172A"),
             corner_radius=0,
         )
         self._progress_panel.pack(fill="both", expand=True)
 
+        # ── Focus-based scroll routing ────────────────────────────
+        from app.ui.scroll_manager import ScrollManager
+        main_canvas = getattr(self._content_scroll, "_parent_canvas", None)
+        if main_canvas:
+            self._scroll_manager = ScrollManager(main_canvas, self._root)
+            self._download_panel.register_scroll(self._scroll_manager)
+            self._progress_panel.register_scroll(self._scroll_manager)
+
+            # Clicking the main canvas (outside all zones) releases focus
+            main_canvas.bind("<Button-1>", lambda _e: self._scroll_manager.release(), add="+")
+            self._content_scroll.bind("<Button-1>", lambda _e: self._scroll_manager.release(), add="+")
+
         # ── Download control strip ────────────────────────────────
-        ctrl = ctk.CTkFrame(self._root, fg_color="#0F172A", corner_radius=0, height=50)
+        ctrl = ctk.CTkFrame(self._root, fg_color=("#E2E8F0", "#0F172A"), corner_radius=0, height=50)
         ctrl.pack(fill="x", side="bottom")
         ctrl.pack_propagate(False)
 
@@ -201,7 +218,7 @@ class MainWindow:
 
         self._lbl_queue = ctk.CTkLabel(
             ctrl, text="",
-            font=ctk.CTkFont(size=11), text_color="#6B7280",
+            font=ctk.CTkFont(size=11), text_color=("#6B7280", "#6B7280"),
         )
         self._lbl_queue.pack(side="left", padx=16)
 
@@ -213,7 +230,7 @@ class MainWindow:
         self._root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._url_entry.bind("<Return>", lambda _: self._fetch_info())
 
-        # Drag-and-drop URL support (optional — requires tkinterdnd2)
+        # Drag-and-drop URL support
         try:
             from tkinterdnd2 import DND_TEXT
             self._root.drop_target_register(DND_TEXT)
@@ -247,11 +264,17 @@ class MainWindow:
         self._download_panel.clear()
         self._download_panel.set_loading(True)
         self._set_status("Fetching video info…", "#60A5FA")
+        self._progress_panel.append_log("── Fetch started ──", "INFO")
+
+        def _on_fetch_progress(msg: str):
+            level = "WARNING" if msg.startswith("⚠") else "INFO"
+            self._root.after(0, lambda m=msg, l=level: self._progress_panel.append_log(f"  {m}", l))
 
         self._downloader.fetch_info(
             url,
-            callback = self._on_info_received,
-            error_cb = self._on_fetch_error,
+            callback    = self._on_info_received,
+            error_cb    = self._on_fetch_error,
+            progress_cb = _on_fetch_progress,
         )
 
     def _on_drop(self, event):
@@ -272,13 +295,28 @@ class MainWindow:
         self._root.after(0, lambda: self._handle_fetch_error(message))
 
     def _on_progress(self, prog: DownloadProgress) -> None:
-        self._root.after(0, lambda: self._progress_panel.update_progress(prog))
+        self._root.after(0, lambda: self._handle_progress(prog))
+
+    def _handle_progress(self, prog: DownloadProgress) -> None:
+        """Update progress bar and route per-video log messages to console."""
+        self._progress_panel.update_progress(prog)
+        if prog.message:
+            if prog.message.startswith("Completed:"):
+                self._progress_panel.append_log(prog.message, "SUCCESS")
+            elif prog.message.startswith("Skipped:"):
+                self._progress_panel.append_log(prog.message, "WARNING")
+            elif prog.message.startswith("Download finished"):
+                pass  # summary shown in _handle_complete
+            elif "Retrying" in prog.message or "retrying" in prog.message:
+                self._progress_panel.append_log(prog.message, "WARNING")
+            elif "Failed" in prog.message:
+                self._progress_panel.append_log(prog.message, "WARNING")
 
     def _on_download_error(self, task_id: str, message: str) -> None:
         self._root.after(0, lambda: self._handle_download_error(message))
 
     def _on_download_complete(self, prog: DownloadProgress) -> None:
-        self._root.after(0, self._handle_complete)
+        self._root.after(0, lambda: self._handle_complete(prog))
 
     def _on_log_message(self, message: str, level: str) -> None:
         """Called by UILogHandler — forward to log console on main thread."""
@@ -299,7 +337,7 @@ class MainWindow:
 
         label = f"Playlist: {info.playlist_count} videos" if info.is_playlist else "Video ready"
         self._set_status(f"✓  {label} — {info.title[:60]}", "#10B981")
-        self._progress_panel.append_log(f"Fetched: {info.title}", "SUCCESS")
+        self._progress_panel.append_log(f"✓ Fetch complete: {info.title[:65]}", "SUCCESS")
 
     def _handle_fetch_error(self, message: str) -> None:
         self._fetch_in_progress = False
@@ -309,22 +347,56 @@ class MainWindow:
         self._progress_panel.append_log(f"Fetch error: {message}", "ERROR")
 
     def _handle_download_error(self, message: str) -> None:
-        self._set_status(f"Download error: {message[:80]}", "#EF4444")
-        self._progress_panel.append_log(f"Download error: {message}", "ERROR")
+        if message.startswith("Skipped:"):
+            self._set_status(f"⚠ {message[:80]}", "#F59E0B")
+            self._progress_panel.append_log(message, "WARNING")
+        else:
+            self._set_status(f"Download error: {message[:80]}", "#EF4444")
+            self._progress_panel.append_log(f"Download error: {message}", "ERROR")
         self._reset_controls()
 
-    def _handle_complete(self) -> None:
-        self._set_status("✓  Download complete!", "#10B981")
+    def _handle_complete(self, prog: DownloadProgress) -> None:
+        task = self._current_task
         self._reset_controls()
+
+        if task and task.video_info:
+            info      = task.video_info
+            completed = getattr(task, "_completed_count", None)
+            skipped   = getattr(task, "_skipped_titles", [])
+
+            if info.is_playlist:
+                if completed is None:
+                    selected  = self._download_panel.get_selected_count()
+                    completed = selected if selected is not None else info.playlist_count
+                total     = info.playlist_count
+                title     = info.playlist_title or info.title
+                status_msg = f"✓  {completed}/{total} videos downloaded — {title[:50]}"
+                log_msg    = (f"Download finished. {completed} downloaded"
+                              + (f", {len(skipped)} skipped" if skipped else "")
+                              + f" / {total} total")
+            else:
+                title      = info.title
+                status_msg = f"✓  Downloaded — {title[:65]}"
+                log_msg    = f"Download finished."
+        else:
+            status_msg = "✓  Download complete!"
+            log_msg    = "Download finished."
+
+        self._set_status(status_msg, "#10B981")
+        self._progress_panel.append_log(log_msg, "SUCCESS")
 
         # Save to history
-        if self._current_task and self._current_task.video_info:
-            info = self._current_task.video_info
+        if task and task.video_info:
+            from datetime import datetime
+            info = task.video_info
             settings.add_to_history({
-                "title": info.title,
-                "url":   info.url,
-                "format": self._current_task.output_format,
-                "dir":   self._current_task.output_dir,
+                "title":      info.title,
+                "url":        info.url,
+                "format":     task.output_format,
+                "resolution": task.resolution,
+                "dir":        task.output_dir,
+                "status":     "completed",
+                "date":       datetime.now().strftime("%Y-%m-%d %H:%M"),
             })
 
     # ---------------------------------------------------------------- #
@@ -340,9 +412,12 @@ class MainWindow:
         video_info: Optional[VideoInfo],
     ) -> None:
         self._progress_panel.reset_progress()
-        self._progress_panel.append_log(
-            f"Starting download: {video_info.title if video_info else url}", "INFO"
-        )
+        if video_info and video_info.is_playlist:
+            start_msg = (f"Starting download: {video_info.playlist_title or video_info.title}"
+                         f" ({video_info.playlist_count} videos)")
+        else:
+            start_msg = f"Starting download: {video_info.title if video_info else url}"
+        self._progress_panel.append_log(start_msg, "INFO")
         self._set_status("Downloading…", "#F59E0B")
 
         task = self._downloader.enqueue(
@@ -388,70 +463,144 @@ class MainWindow:
     def _show_settings(self) -> None:
         win = ctk.CTkToplevel(self._root)
         win.title("Settings")
-        win.geometry("420x360")
+        win.geometry("460x480")
         win.grab_set()
 
         ctk.CTkLabel(win, text="Settings", font=ctk.CTkFont(size=16, weight="bold")).pack(pady=(16, 8))
 
         frame = ctk.CTkFrame(win)
         frame.pack(fill="both", expand=True, padx=20, pady=8)
+        frame.grid_columnconfigure(1, weight=1)
+
+        def _row(parent, label, row):
+            ctk.CTkLabel(parent, text=label, anchor="w").grid(
+                row=row, column=0, sticky="w", padx=12, pady=8)
+
+        def _spinbox(parent, row, var, min_val, max_val):
+            """Number entry with +/- buttons."""
+            box = ctk.CTkFrame(parent, fg_color="transparent")
+            box.grid(row=row, column=1, sticky="e", padx=12, pady=8)
+            ctk.CTkButton(box, text="−", width=28, height=28,
+                          command=lambda: var.set(max(min_val, var.get() - 1))).pack(side="left")
+            lbl = ctk.CTkLabel(box, textvariable=var, width=40, anchor="center",
+                               font=ctk.CTkFont(size=13, weight="bold"))
+            lbl.pack(side="left", padx=6)
+            ctk.CTkButton(box, text="+", width=28, height=28,
+                          command=lambda: var.set(min(max_val, var.get() + 1))).pack(side="left")
 
         # Embed metadata
         meta_var = tk.BooleanVar(value=settings.get("embed_metadata"))
-        ctk.CTkCheckBox(frame, text="Embed metadata", variable=meta_var).pack(anchor="w", pady=6, padx=12)
+        _row(frame, "Embed metadata", 0)
+        ctk.CTkSwitch(frame, text="", variable=meta_var).grid(row=0, column=1, sticky="e", padx=12, pady=8)
 
         # Embed thumbnail
         thumb_var = tk.BooleanVar(value=settings.get("embed_thumbnail"))
-        ctk.CTkCheckBox(frame, text="Embed thumbnail in file", variable=thumb_var).pack(anchor="w", pady=6, padx=12)
+        _row(frame, "Embed thumbnail in file", 1)
+        ctk.CTkSwitch(frame, text="", variable=thumb_var).grid(row=1, column=1, sticky="e", padx=12, pady=8)
+
+        # Separator
+        ctk.CTkFrame(frame, height=1, fg_color=("#CBD5E1", "#334155")).grid(
+            row=2, column=0, columnspan=2, sticky="ew", padx=12, pady=4)
 
         # Concurrent downloads
-        ctk.CTkLabel(frame, text="Concurrent downloads:", anchor="w").pack(anchor="w", padx=12, pady=(8, 0))
         conc_var = tk.IntVar(value=settings.get("concurrent_downloads"))
-        ctk.CTkSlider(frame, from_=1, to=5, number_of_steps=4, variable=conc_var).pack(fill="x", padx=12)
+        _row(frame, "Concurrent downloads", 3)
+        _spinbox(frame, 3, conc_var, 1, 10)
+
+        # Max retries
+        retry_var = tk.IntVar(value=settings.get("max_retries"))
+        _row(frame, "Max retries per video", 4)
+        _spinbox(frame, 4, retry_var, 0, 10)
+
+        # Retry delay
+        delay_var = tk.IntVar(value=settings.get("retry_delay"))
+        _row(frame, "Retry delay (seconds)", 5)
+        _spinbox(frame, 5, delay_var, 1, 60)
 
         def _save():
-            settings.set("embed_metadata", meta_var.get())
-            settings.set("embed_thumbnail", thumb_var.get())
+            settings.set("embed_metadata",      meta_var.get())
+            settings.set("embed_thumbnail",      thumb_var.get())
             settings.set("concurrent_downloads", conc_var.get())
+            settings.set("max_retries",          retry_var.get())
+            settings.set("retry_delay",          delay_var.get())
             settings.save()
             win.destroy()
 
-        ctk.CTkButton(win, text="Save", command=_save).pack(pady=12)
+        ctk.CTkButton(win, text="Save", command=_save).pack(pady=14)
 
     # ---------------------------------------------------------------- #
     #  History dialog                                                   #
     # ---------------------------------------------------------------- #
 
     def _show_history(self) -> None:
-        history = settings.get("download_history") or []
-
         win = ctk.CTkToplevel(self._root)
         win.title("Download History")
-        win.geometry("560x400")
+        win.geometry("680x520")
         win.grab_set()
+        win.grid_columnconfigure(0, weight=1)
+        win.grid_rowconfigure(1, weight=1)
 
-        ctk.CTkLabel(win, text="Download History",
-                     font=ctk.CTkFont(size=15, weight="bold")).pack(pady=(12, 4))
+        # Header
+        hdr = ctk.CTkFrame(win, fg_color=("#CBD5E1", "#16213e"), corner_radius=0)
+        hdr.grid(row=0, column=0, sticky="ew")
+        ctk.CTkLabel(hdr, text="Download History",
+                     font=ctk.CTkFont(size=15, weight="bold")).pack(side="left", padx=16, pady=10)
 
-        if not history:
-            ctk.CTkLabel(win, text="No downloads yet.", text_color="#6B7280").pack(expand=True)
-        else:
-            scroll = ctk.CTkScrollableFrame(win)
-            scroll.pack(fill="both", expand=True, padx=12, pady=8)
-            for item in history:
-                row = ctk.CTkFrame(scroll, fg_color="#1E293B", corner_radius=6)
-                row.pack(fill="x", pady=3)
-                ctk.CTkLabel(row, text=item.get("title", "?")[:55],
-                             font=ctk.CTkFont(size=12), anchor="w").pack(side="left", padx=10, pady=6)
-                ctk.CTkLabel(row, text=item.get("format", "").upper(),
-                             font=ctk.CTkFont(size=11), text_color="#9CA3AF").pack(side="right", padx=10)
+        scroll_holder = [None]  # mutable ref so _build can replace scroll
+
+        def _build_scroll():
+            if scroll_holder[0]:
+                scroll_holder[0].destroy()
+            history = settings.get("download_history") or []
+            scroll = ctk.CTkScrollableFrame(win, fg_color=("#F8FAFC", "#0F172A"), corner_radius=0)
+            scroll.grid(row=1, column=0, sticky="nsew")
+            scroll.grid_columnconfigure(0, weight=1)
+            scroll_holder[0] = scroll
+
+            if not history:
+                ctk.CTkLabel(scroll, text="No downloads yet.",
+                             text_color=("#6B7280", "#6B7280"),
+                             font=ctk.CTkFont(size=13)).pack(pady=40)
+                return
+
+            for i, entry in enumerate(history):
+                status = entry.get("status", "completed")
+                status_color = "#10B981" if status == "completed" else "#EF4444"
+
+                card = ctk.CTkFrame(scroll, fg_color=("#FFFFFF", "#1E293B"), corner_radius=8)
+                card.grid(row=i, column=0, sticky="ew", padx=12, pady=4)
+                card.grid_columnconfigure(0, weight=1)
+
+                ctk.CTkLabel(card,
+                             text=entry.get("title", "Unknown title")[:65],
+                             font=ctk.CTkFont(size=12, weight="bold"),
+                             anchor="w").grid(row=0, column=0, sticky="ew", padx=10, pady=(8, 2))
+
+                fmt        = entry.get("format", "?").upper()
+                resolution = entry.get("resolution", "")
+                date       = entry.get("date", "")
+                meta = "  ·  ".join(filter(None, [date, fmt, resolution]))
+                ctk.CTkLabel(card, text=meta,
+                             font=ctk.CTkFont(size=11),
+                             text_color=("#6B7280", "#9CA3AF"), anchor="w").grid(
+                             row=1, column=0, sticky="ew", padx=10, pady=(0, 8))
+
+                ctk.CTkLabel(card,
+                             text=status.upper(),
+                             font=ctk.CTkFont(size=10, weight="bold"),
+                             text_color=status_color).grid(
+                             row=0, column=1, rowspan=2, padx=14)
 
         def _clear():
             settings.clear_history()
-            win.destroy()
+            _build_scroll()
 
-        ctk.CTkButton(win, text="Clear History", fg_color="#7F1D1D",
-                      hover_color="#991B1B", command=_clear).pack(pady=8)
+        ctk.CTkButton(hdr, text="Clear History", width=120,
+                      fg_color="#7F1D1D", hover_color="#991B1B",
+                      command=_clear).pack(side="right", padx=16, pady=8)
+
+        _build_scroll()
+
 
     # ---------------------------------------------------------------- #
     #  Theme toggle                                                     #
@@ -467,7 +616,7 @@ class MainWindow:
     #  Misc                                                             #
     # ---------------------------------------------------------------- #
 
-    def _set_status(self, message: str, colour: str = "#9CA3AF") -> None:
+    def _set_status(self, message: str, colour: str = "#6B7280") -> None:
         self._status_bar.configure(text=message, text_color=colour)
 
     def _on_close(self) -> None:
